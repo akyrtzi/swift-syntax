@@ -1,4 +1,5 @@
 import SwiftSyntaxParser
+import Dispatch
 
 public class SyntaxParser {
   private let c_parser: swiftparse_parser_t
@@ -10,7 +11,7 @@ public class SyntaxParser {
     swiftparse_parser_dispose(c_parser)
   }
 
-  public func parse(_ contents: String, parseOnly: Bool = false, isInUTF8: Bool = false) throws -> SourceFileSyntax? {
+  public func parse(_ contents: String, parseOnly: Bool = false, isInUTF8: Bool = false) throws -> (SourceFileSyntax?, Double) {
     // Get a native UTF8 string for efficient indexing with UTF8 byte offsets.
     // If the string is backed by an NSString then such indexing will become extremely slow.
     let utf8Contents: String
@@ -20,15 +21,20 @@ public class SyntaxParser {
      utf8Contents = contents.withCString { String(cString: $0) }
     }
 
+    let start = DispatchTime.now()
     let rawSyntax = parseRaw(utf8Contents, parseOnly: parseOnly)
+    let end = DispatchTime.now()
+    let nanoTime = end.uptimeNanoseconds - start.uptimeNanoseconds
+    let secTime = Double(nanoTime) / 1_000_000_000
+
     if parseOnly {
-      return nil
+      return (nil, secTime)
     }
 
     guard let file = makeSyntax(rawSyntax!) as? SourceFileSyntax else {
       throw ParserError.invalidFile
     }
-    return file
+    return (file, secTime)
   }
 
   func parseRaw(_ contents: String, parseOnly: Bool) -> RawSyntax? {
