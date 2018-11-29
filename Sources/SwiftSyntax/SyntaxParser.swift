@@ -11,7 +11,10 @@ public class SyntaxParser {
     swiftparse_parser_dispose(c_parser)
   }
 
-  public func parse(_ contents: String, parseOnly: Bool = false, isInUTF8: Bool = false) throws -> (SourceFileSyntax?, Double) {
+  public func parse(_ contents: String,
+    parseOnly: Bool = false,
+    isInUTF8: Bool = false,
+    useBumpAlloc: Bool = false) throws -> (SourceFileSyntax?, Double) {
     // Get a native UTF8 string for efficient indexing with UTF8 byte offsets.
     // If the string is backed by an NSString then such indexing will become extremely slow.
     let utf8Contents: String
@@ -21,13 +24,17 @@ public class SyntaxParser {
      utf8Contents = contents.withCString { String(cString: $0) }
     }
 
+    if useBumpAlloc {
+      swiftparse_alloc_init()
+    }
+
     let start = DispatchTime.now()
-    let rawSyntax = parseRaw(utf8Contents, parseOnly: parseOnly)
+    let rawSyntax = parseRaw(utf8Contents, parseOnly: parseOnly, useBumpAlloc: useBumpAlloc)
     let end = DispatchTime.now()
     let nanoTime = end.uptimeNanoseconds - start.uptimeNanoseconds
     let secTime = Double(nanoTime) / 1_000_000_000
 
-    if parseOnly {
+    if parseOnly || rawSyntax == nil {
       return (nil, secTime)
     }
 
@@ -37,11 +44,15 @@ public class SyntaxParser {
     return (file, secTime)
   }
 
-  func parseRaw(_ contents: String, parseOnly: Bool) -> RawSyntax? {
+  func parseRaw(_ contents: String, parseOnly: Bool, useBumpAlloc: Bool) -> RawSyntax? {
     let tokenCache = RawSyntaxTokenCache(contents: contents)
     let nodeHandler: (Optional<UnsafePointer<swiftparse_raw_syntax_node_t>>) -> Optional<UnsafeMutableRawPointer>
     if !parseOnly {
       nodeHandler = { (c_raw_nodeOpt: Optional<UnsafePointer<swiftparse_raw_syntax_node_t>>) -> Optional<UnsafeMutableRawPointer> in
+        if useBumpAlloc {
+          return UnsafeMutableRawPointer(swiftparse_copy_node(c_raw_nodeOpt))
+        }
+
         let node = makeRawNode(c_raw_nodeOpt!, cache: tokenCache)
         let nodeptr = UnsafeMutablePointer<RawSyntax>.allocate(capacity: 1)
         nodeptr.initialize(to: node)
@@ -53,7 +64,7 @@ public class SyntaxParser {
     swiftparse_set_new_node_handler(c_parser, nodeHandler);
 
     let c_top = swiftparse_parse(c_parser, contents)
-    if (parseOnly) {
+    if (parseOnly || useBumpAlloc) {
       return nil
     }
     return moveFromCRawNode(c_top)
