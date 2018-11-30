@@ -14,7 +14,7 @@ public class SyntaxParser {
   public func parse(_ contents: String,
     parseOnly: Bool = false,
     isInUTF8: Bool = false,
-    useBumpAlloc: Bool = false) throws -> (SourceFileSyntax?, Double) {
+    useBumpAlloc: Bool = false) throws -> (SourceFileSyntax?, CSourceFileSyntax?, Double) {
     // Get a native UTF8 string for efficient indexing with UTF8 byte offsets.
     // If the string is backed by an NSString then such indexing will become extremely slow.
     let utf8Contents: String
@@ -29,45 +29,58 @@ public class SyntaxParser {
     }
 
     let start = DispatchTime.now()
-    let rawSyntax = parseRaw(utf8Contents, parseOnly: parseOnly, useBumpAlloc: useBumpAlloc)
+    let (rawSyntax, crawNode) = parseRaw(utf8Contents, parseOnly: parseOnly, useBumpAlloc: useBumpAlloc)
     let end = DispatchTime.now()
     let nanoTime = end.uptimeNanoseconds - start.uptimeNanoseconds
     let secTime = Double(nanoTime) / 1_000_000_000
 
-    if parseOnly || rawSyntax == nil {
-      return (nil, secTime)
+    if parseOnly {
+      return (nil, nil, secTime)
     }
 
-    guard let file = makeSyntax(rawSyntax!) as? SourceFileSyntax else {
-      throw ParserError.invalidFile
+    if rawSyntax != nil {
+      guard let file = makeSyntax(rawSyntax!) as? SourceFileSyntax else {
+        throw ParserError.invalidFile
+      }
+      return (file, nil, secTime)
     }
-    return (file, secTime)
+    if crawNode != nil {
+      guard let file = makeCSyntax(data: crawNode!) as? CSourceFileSyntax else {
+        throw ParserError.invalidFile
+      }
+      return (nil, file, secTime)
+    }
+    fatalError()
   }
 
-  func parseRaw(_ contents: String, parseOnly: Bool, useBumpAlloc: Bool) -> RawSyntax? {
+  func parseRaw(_ contents: String, parseOnly: Bool, useBumpAlloc: Bool) -> (RawSyntax?, CRawNode?) {
     let tokenCache = RawSyntaxTokenCache(contents: contents)
     let nodeHandler: (Optional<UnsafePointer<swiftparse_raw_syntax_node_t>>) -> Optional<UnsafeMutableRawPointer>
-    if !parseOnly {
+    if parseOnly {
+      nodeHandler = { _ in return nil }
+    } else if useBumpAlloc {
       nodeHandler = { (c_raw_nodeOpt: Optional<UnsafePointer<swiftparse_raw_syntax_node_t>>) -> Optional<UnsafeMutableRawPointer> in
-        if useBumpAlloc {
-          return UnsafeMutableRawPointer(swiftparse_copy_node(c_raw_nodeOpt))
-        }
-
+        return UnsafeMutableRawPointer(swiftparse_copy_node(c_raw_nodeOpt))
+      }
+    } else {
+      nodeHandler = { (c_raw_nodeOpt: Optional<UnsafePointer<swiftparse_raw_syntax_node_t>>) -> Optional<UnsafeMutableRawPointer> in
         let node = makeRawNode(c_raw_nodeOpt!, cache: tokenCache)
         let nodeptr = UnsafeMutablePointer<RawSyntax>.allocate(capacity: 1)
         nodeptr.initialize(to: node)
         return UnsafeMutableRawPointer(nodeptr)
       }
-    } else {
-      nodeHandler = { _ in return nil }
     }
     swiftparse_set_new_node_handler(c_parser, nodeHandler);
 
     let c_top = swiftparse_parse(c_parser, contents)
-    if (parseOnly || useBumpAlloc) {
-      return nil
+    if parseOnly {
+      return (nil, nil)
     }
-    return moveFromCRawNode(c_top)
+    if useBumpAlloc {
+      let c_node = c_top!.bindMemory(to: swiftparse_raw_syntax_node_t.self, capacity: 1)
+      return (nil, c_node)
+    }
+    return (moveFromCRawNode(c_top), nil)
   }
 }
 
@@ -85,7 +98,7 @@ class RawSyntaxTokenCache {
   }
 
   func getToken(_ tokdat: swiftparse_token_data_t, useCache: Bool = true) -> RawSyntax {
-    let text = utf8Slice(contents: contents, offset: Int(tokdat.text.offset), length: Int(tokdat.text.length))
+    let text = contents.utf8Slice(offset: Int(tokdat.text.offset), length: Int(tokdat.text.length))
     if !useCache || !shouldCacheNode(tokdat: tokdat) {
       return createToken(tokdat, text: text)
     }
@@ -210,16 +223,6 @@ fileprivate func toTrivia(_ c_ptr: UnsafePointer<swiftparse_trivia_piece_t>?, co
 fileprivate func toTriviaPiece(_ c_piece: swiftparse_trivia_piece_t, contents: String) -> TriviaPiece {
   let kind = c_piece.kind
   let count = Int(c_piece.count)
-  let text = String(utf8Slice(contents: contents, offset: Int(c_piece.text.offset), length: Int(c_piece.text.length)))
+  let text = String(contents.utf8Slice(offset: Int(c_piece.text.offset), length: Int(c_piece.text.length)))
   return try! TriviaPiece.create(kind: kind, count: count, text: text)
-}
-
-fileprivate func utf8Slice(contents: String, offset: Int, length: Int) -> Substring {
-  if length == 0 {
-    return Substring()
-  }
-  let utf8 = contents.utf8
-  let begin = utf8.index(utf8.startIndex, offsetBy: offset)
-  let end = utf8.index(begin, offsetBy: length)
-  return Substring(utf8[begin..<end])
 }

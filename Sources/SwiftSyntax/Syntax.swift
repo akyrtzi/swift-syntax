@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 import Foundation
+import SwiftSyntaxParser
 
 /// A Syntax node represents a tree of nodes with tokens at the leaves.
 /// Each node has accessors for its known children, and allows efficient
@@ -416,5 +417,79 @@ public struct TokenSyntax: _SyntaxBase, Hashable {
 
   public var hashValue: Int {
     return ObjectIdentifier(_data).hashValue
+  }
+}
+
+extension String {
+  func utf8Slice(offset: Int, length: Int) -> Substring {
+    if length == 0 {
+      return Substring()
+    }
+    let utf8 = self.utf8
+    let begin = utf8.index(utf8.startIndex, offsetBy: offset)
+    let end = utf8.index(begin, offsetBy: length)
+    return Substring(utf8[begin..<end])
+  }
+}
+
+public typealias CRawNode = UnsafeMutablePointer<swiftparse_raw_syntax_node_t>
+
+public protocol CSyntax {
+  var c_node: CRawNode { get }
+}
+
+public struct CTokenSyntax: CSyntax {
+  @usableFromInline let _c_node: CRawNode 
+
+  /// Creates a Syntax node from the provided root and data.
+  internal init(c_node: CRawNode) {
+    self._c_node = c_node
+  }
+
+  @inlinable public var c_node: CRawNode { return _c_node }
+
+  /// The text of the token as written in the source code.
+  public func getText(contents: String) -> Substring {
+    let tokdat = _c_node.pointee.token_data
+    return contents.utf8Slice(offset: Int(tokdat.text.offset), length: Int(tokdat.text.length))
+  }
+
+  /// The kind of token this node represents.
+  public var tokenKind: CTokenKind {
+    guard _c_node.pointee.kind == 0 else {
+      fatalError("CTokenSyntax must have token as its raw")
+    }
+    return CTokenKind.create(kind: _c_node.pointee.token_data.kind)
+  }
+
+  /// The length this node takes up spelled out in the source, excluding its
+  /// leading or trailing trivia.
+  public var contentLength: Int {
+    return Int(_c_node.pointee.token_data.text.length)
+  }
+  
+  /// The length this node's leading trivia takes up spelled out in source.
+  public var leadingTriviaLength: Int {
+    let dat = _c_node.pointee.token_data
+    var len = 0
+    for i in 0..<dat.leading_trivia_count {
+      len += Int(dat.leading_trivia![i].text.length)
+    }
+    return len
+  }
+
+  /// The length this node's trailing trivia takes up spelled out in source.
+  public var trailingTriviaLength: Int {
+    let dat = _c_node.pointee.token_data
+    var len = 0
+    for i in 0..<dat.trailing_trivia_count {
+      len += Int(dat.trailing_trivia![i].text.length)
+    }
+    return len
+  }
+
+  /// The length of this node including all of its trivia.
+  public var totalLength: Int {
+    return leadingTriviaLength + contentLength + trailingTriviaLength
   }
 }

@@ -18,6 +18,7 @@
 //===----------------------------------------------------------------------===//
 
 import Foundation
+import SwiftSyntaxParser
 
 % for node in SYNTAX_NODES:
 %   if node.collection_element:
@@ -173,6 +174,72 @@ public struct ${node.name}Iterator: IteratorProtocol {
   private var index: ${node.name}.Index
 
   fileprivate init(collection: ${node.name}) {
+    self.collection = collection
+    self.index = collection.startIndex
+  }
+
+  public mutating func next() -> Element? {
+    guard
+      !(self.collection.isEmpty || self.index == self.collection.endIndex)
+    else {
+      return nil
+    }
+
+    let result = collection[index]
+    collection.formIndex(after: &index)
+    return result
+  }
+}
+
+/// `${node.name}` represents a collection of one or more
+/// `${node.collection_element_type}` nodes. ${node.name} behaves
+/// as a regular Swift collection, and has accessors that return new
+/// versions of the collection with different children.
+public struct C${node.name}: CSyntax, Collection {
+  @usableFromInline let _c_node: CRawNode
+
+  /// Creates a Syntax node from the provided root and data.
+  internal init(c_node: CRawNode) {
+    self._c_node = c_node
+  }
+
+  @inlinable public var c_node: CRawNode { return _c_node }
+
+  /// Returns an iterator over the elements of this syntax collection.
+  public func makeIterator() -> C${node.name}Iterator {
+    return C${node.name}Iterator(collection: self)
+  }
+
+  // Conformance for `${node.name}`` to the Collection protocol.
+
+  public var startIndex: Int {
+    return 0
+  }
+
+  public var endIndex: Int {
+    return _c_node.pointee.layout_data.nodes_count
+  }
+
+  public func index(after i: Int) -> Int {
+    return i
+  }
+
+  public subscript(_ index: Int) -> C${node.collection_element_type} {
+%   cast = '' if node.collection_element_type == 'Syntax' \
+%          else 'as! ' + 'C'+node.collection_element_type
+    let c_node = _c_node.pointee.layout_data.nodes![index]!.bindMemory(to: swiftparse_raw_syntax_node_t.self, capacity: 1)
+    return makeCSyntax(data: c_node) ${cast}
+  }
+}
+
+/// A type that iterates over a `${node.name}` using its indices.
+public struct C${node.name}Iterator: IteratorProtocol {
+  public typealias Element = C${node.collection_element_type}
+
+  private let collection: C${node.name}
+  private var index: C${node.name}.Index
+
+  fileprivate init(collection: C${node.name}) {
     self.collection = collection
     self.index = collection.startIndex
   }

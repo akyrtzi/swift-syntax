@@ -25,6 +25,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+import SwiftSyntaxParser
+
 open class SyntaxRewriter {
   public init() {}
 % for node in SYNTAX_NODES:
@@ -296,5 +298,44 @@ public class SyntaxVerifier: SyntaxVisitor {
 
   public static func verify(_ node: Syntax) throws {
     try SyntaxVerifier().verify(node)
+  }
+}
+
+open class CSyntaxVisitor {
+  public init() {}
+% for node in SYNTAX_NODES:
+%   if is_visitable(node):
+  open func visit(_ node: C${node.name}) {
+    visitChildren(node)
+  }
+
+%   end
+% end
+
+  open func visit(_ token: CTokenSyntax) {
+  }
+
+  public func visit(_ node: CSyntax) {
+    let kind = SyntaxKind.fromRawValue(node.c_node.pointee.kind)
+    switch kind {
+    case .token: return visit(node as! CTokenSyntax)
+% for node in SYNTAX_NODES:
+%   if is_visitable(node):
+    case .${node.swift_syntax_kind}: return visit(node as! C${node.name})
+%   end
+% end
+    default: return visitChildren(node)
+    }
+  }
+
+  func visitChildren(_ node: CSyntax) {
+    let raw = node.c_node.pointee.layout_data
+    for i in 0..<raw.nodes_count {
+      let c_child_ptr = raw.nodes![i]
+      guard let c_child = c_child_ptr else { continue }
+      let c_child_node = c_child.bindMemory(to: swiftparse_raw_syntax_node_t.self, capacity: 1)
+      let child_node = makeCSyntax(data: c_child_node)
+      visit(child_node)
+    }
   }
 }

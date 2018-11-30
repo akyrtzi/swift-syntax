@@ -184,3 +184,59 @@ extension TokenKind {
     }
   }
 }
+
+public enum CTokenKind {
+  case eof
+% for token in SYNTAX_TOKENS:
+%   kind = token.swift_kind()
+  case ${kind}
+% end
+
+  public var hasText: Bool {
+    switch self {
+    case .eof: return false
+% for token in SYNTAX_TOKENS:
+%   if token.text:
+    case .${token.swift_kind()}: return false
+%   else:
+    case .${token.swift_kind()}: return true
+%   end
+% end
+    }
+  }
+
+  public var isKeyword: Bool {
+    switch self {
+    case .eof: return false
+% for token in SYNTAX_TOKENS:
+%   if token.is_keyword:
+    case .${token.swift_kind()}: return true
+%   else:
+    case .${token.swift_kind()}: return false
+%   end
+% end
+    }
+  }
+  
+  var kind: String {
+    switch self {
+    case .eof: return "eof"
+% for token in SYNTAX_TOKENS:
+%   kind = token.swift_kind()
+    case .${kind}: return "${token.kind}"
+% end
+    }
+  }
+
+  static func create(kind: UInt32) -> CTokenKind {
+    switch kind {
+    case 0: return .eof
+% for token in SYNTAX_TOKENS:
+    case ${token.serialization_code}:
+      return .${token.swift_kind()}
+% end
+    default:
+      fatalError()
+    }
+  }
+}

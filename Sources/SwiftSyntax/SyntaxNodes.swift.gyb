@@ -19,6 +19,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+import SwiftSyntaxParser
+
 %{
 """
 Each Syntax node implements the protocol of a more generic node. For example,
@@ -51,6 +53,18 @@ public struct UnknownSyntax: _SyntaxBase {
   }
 }
 
+/// A wrapper around a raw Syntax layout.
+public struct CUnknownSyntax: CSyntax {
+  @usableFromInline let _c_node: CRawNode
+
+  /// Creates an `UnknownSyntax` node from the provided root and data.
+  internal init(c_node: CRawNode) {
+    self._c_node = c_node
+  }
+
+  @inlinable public var c_node: CRawNode { return _c_node }
+}
+
 % for node in SYNTAX_NODES:
 %   base_type = node.base_type
 %   if node.is_base():
@@ -58,6 +72,8 @@ public struct UnknownSyntax: _SyntaxBase {
 /// ${line}
 %     end
 public protocol ${node.name}: Syntax {}
+
+public protocol C${node.name}: Syntax {}
 
 %   elif node.collection_element:
 %     pass
@@ -149,6 +165,49 @@ public struct ${node.name}: ${base_type}, _SyntaxBase, Hashable {
   public var hashValue: Int {
     return ObjectIdentifier(_data).hashValue
   }
+}
+
+%     for line in dedented_lines(node.description):
+/// ${line}
+%     end
+public struct C${node.name}: CSyntax {
+  private let _c_node: CRawNode
+%     if node.children:
+  enum Cursor: Int {
+%       for child in node.children:
+    case ${child.swift_name}
+%       end
+  }
+%     end
+
+  internal init(c_node: CRawNode) {
+    self._c_node = c_node
+  }
+
+  public var c_node: CRawNode { return _c_node }
+
+%     for child in node.children:
+%       ret_type = 'C'+child.type_name
+%       cast_symbol = 'as!'
+%       if child.is_optional:
+%         ret_type += '?'
+%         cast_symbol = 'as?'
+%       end
+%       cast = '' if child.type_name == 'Syntax' \
+%                 else '%s C%s' % (cast_symbol, child.type_name)
+%       for line in dedented_lines(child.description):
+  /// ${line}
+%       end
+  public var ${child.swift_name}: ${ret_type} {
+    let child = _c_node.pointee.layout_data.nodes![Cursor.${child.swift_name}.rawValue]
+%       if child.is_optional:
+    if child == nil { return nil }
+%       end
+    let c_node = child!.bindMemory(to: swiftparse_raw_syntax_node_t.self, capacity: 1)
+    return makeCSyntax(data: CRawNode(c_node)) ${cast}
+  }
+%     end
+
 }
 
 %   end

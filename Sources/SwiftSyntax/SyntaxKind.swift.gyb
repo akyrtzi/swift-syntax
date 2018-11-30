@@ -95,6 +95,22 @@ internal func makeSyntax(root: SyntaxData?, data: SyntaxData) -> Syntax {
   }
 }
 
+internal func makeCSyntax(data: CRawNode) -> CSyntax {
+  let kind = SyntaxKind.fromRawValue(data.pointee.kind)
+  switch kind {
+  case .token: return CTokenSyntax(c_node: data)
+  case .unknown: return CUnknownSyntax(c_node: data)
+% for node in SYNTAX_NODES:
+  case .${node.swift_syntax_kind}:
+%   if node.is_base():
+    return CUnknown${node.name}(c_node: data)
+%   else:
+    return C${node.name}(c_node: data)
+%   end
+% end
+  }
+}
+
 
 extension SyntaxKind: ByteTreeScalarDecodable {
   static func read(from pointer: UnsafeRawPointer, size: Int,
