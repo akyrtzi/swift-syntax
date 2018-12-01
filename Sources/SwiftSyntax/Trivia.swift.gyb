@@ -256,7 +256,7 @@ extension TriviaPiece: ByteTreeObjectDecodable {
 }
 
 extension TriviaPiece {
-  static func create(kind: UInt32,  count: Int, text: String) throws -> TriviaPiece {
+  static func create(kind: UInt8,  count: Int, text: String) throws -> TriviaPiece {
     switch kind {
 % for trivia in TRIVIAS:
     case ${trivia.serialization_code}:

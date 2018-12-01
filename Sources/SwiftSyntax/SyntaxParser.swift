@@ -3,9 +3,11 @@ import Dispatch
 
 public class SyntaxParser {
   private let c_parser: swiftparse_parser_t
+  private let synCtx: SyntaxContext
 
   public init() {
     c_parser = swiftparse_parser_create()
+    synCtx = SyntaxContext()
   }
   deinit {
     swiftparse_parser_dispose(c_parser)
@@ -22,10 +24,6 @@ public class SyntaxParser {
       utf8Contents = contents
     } else {
      utf8Contents = contents.withCString { String(cString: $0) }
-    }
-
-    if useBumpAlloc {
-      swiftparse_alloc_init()
     }
 
     let start = DispatchTime.now()
@@ -45,7 +43,7 @@ public class SyntaxParser {
       return (file, nil, secTime)
     }
     if crawNode != nil {
-      guard let file = makeCSyntax(data: crawNode!) as? CSourceFileSyntax else {
+      guard let file = makeCSyntax(data: crawNode!, ctx: synCtx) as? CSourceFileSyntax else {
         throw ParserError.invalidFile
       }
       return (nil, file, secTime)
@@ -59,8 +57,9 @@ public class SyntaxParser {
     if parseOnly {
       nodeHandler = { _ in return nil }
     } else if useBumpAlloc {
+      let ctx = self.synCtx // pass it via local variable to avoid unnecessary retain/releases.
       nodeHandler = { (c_raw_nodeOpt: Optional<UnsafePointer<swiftparse_raw_syntax_node_t>>) -> Optional<UnsafeMutableRawPointer> in
-        return UnsafeMutableRawPointer(swiftparse_copy_node(c_raw_nodeOpt))
+        return UnsafeMutableRawPointer(ctx.copyNode(c_raw_nodeOpt!))
       }
     } else {
       nodeHandler = { (c_raw_nodeOpt: Optional<UnsafePointer<swiftparse_raw_syntax_node_t>>) -> Optional<UnsafeMutableRawPointer> in
@@ -97,25 +96,28 @@ class RawSyntaxTokenCache {
     self.contents = contents
   }
 
-  func getToken(_ tokdat: swiftparse_token_data_t, useCache: Bool = true) -> RawSyntax {
+  func getToken(_ tokdat: swiftparse_token_data_t, kind: swiftparse_token_kind_t, useCache: Bool = true) -> RawSyntax {
     let text = contents.utf8Slice(offset: Int(tokdat.text.offset), length: Int(tokdat.text.length))
-    if !useCache || !shouldCacheNode(tokdat: tokdat) {
-      return createToken(tokdat, text: text)
+    if !useCache || !shouldCacheNode(tokdat: tokdat, kind: kind) {
+      return createToken(tokdat, kind: kind, text: text)
     }
 
-    let dataBytes = getDataBytes(tokdat, text: text)
+    let dataBytes = getDataBytes(tokdat, kind: kind, text: text)
     if let existingNode = cache[dataBytes] {
       return existingNode
     }
 
-    let newNode = createToken(tokdat, text: text)
+    let newNode = createToken(tokdat, kind: kind, text: text)
     cache[dataBytes] = newNode
     return newNode
   }
 
-  private func getDataBytes(_ tokdat: swiftparse_token_data_t, text: Substring) -> [UInt8] {
+  private func getDataBytes(_ tokdat: swiftparse_token_data_t, kind: swiftparse_token_kind_t, text: Substring) -> [UInt8] {
     var bytes = [UInt8]()
-    bytes.reserveCapacity(4 + text.count + (tokdat.leading_trivia_count+tokdat.trailing_trivia_count)*(4+4))
+    bytes.reserveCapacity(4 + Int(text.count) + Int(tokdat.leading_trivia_count+tokdat.trailing_trivia_count)*(4+4))
+    let addValue8 = { (val: UInt8) in
+      bytes.append(val)
+    }
     let addValue = { (val: UInt32) in
       bytes.append(UInt8(truncatingIfNeeded: val))
       bytes.append(UInt8(truncatingIfNeeded: val >> 8))
@@ -127,16 +129,16 @@ class RawSyntaxTokenCache {
         bytes += text.utf8
       }
     }
-    let addTrivia = { (c_ptr: UnsafePointer<swiftparse_trivia_piece_t>?, count: Int) in
-      for i in 0..<count {
+    let addTrivia = { (c_ptr: UnsafePointer<swiftparse_trivia_piece_t>?, count: UInt32) in
+      for i in 0..<Int(count) {
         let c_piece = c_ptr![i]
-        addValue(c_piece.kind)
+        addValue8(c_piece.kind)
         addValue(c_piece.count)
         // Trivia with text are not cached.
       }
     }
 
-    addValue(tokdat.kind)
+    addValue8(kind)
     addString(text)
     addTrivia(tokdat.leading_trivia, tokdat.leading_trivia_count)
     addTrivia(tokdat.trailing_trivia, tokdat.trailing_trivia_count)
@@ -144,18 +146,18 @@ class RawSyntaxTokenCache {
     return bytes
   }
 
-  private func createToken(_ tokdat: swiftparse_token_data_t, text: Substring) -> RawSyntax {
-    let tokKind = try! TokenKind.create(kind: tokdat.kind, text: String(text))
-    let leadingTrivia = toTrivia(tokdat.leading_trivia, count: tokdat.leading_trivia_count, contents: contents)
-    let trailingTrivia = toTrivia(tokdat.trailing_trivia, count: tokdat.trailing_trivia_count, contents: contents)
+  private func createToken(_ tokdat: swiftparse_token_data_t, kind: swiftparse_token_kind_t, text: Substring) -> RawSyntax {
+    let tokKind = try! TokenKind.create(kind: kind, text: String(text))
+    let leadingTrivia = toTrivia(tokdat.leading_trivia, count: Int(tokdat.leading_trivia_count), contents: contents)
+    let trailingTrivia = toTrivia(tokdat.trailing_trivia, count: Int(tokdat.trailing_trivia_count), contents: contents)
     return RawSyntax(kind: tokKind, leadingTrivia: leadingTrivia, trailingTrivia: trailingTrivia, presence: .present)
   }
 
-  private func shouldCacheNode(tokdat: swiftparse_token_data_t) -> Bool {
+  private func shouldCacheNode(tokdat: swiftparse_token_data_t, kind: swiftparse_token_kind_t) -> Bool {
     // This is adapted from RawSyntaxTokenCache::shouldCacheNode() on the C++ side.
 
     let textLength = Int(tokdat.text.length)
-    let tokKind = try! TokenKind.create(kind: tokdat.kind, text: String())
+    let tokKind = try! TokenKind.create(kind: kind, text: String())
 
     // Is string_literal with >16 length.
     if case .stringLiteral(_) = tokKind, textLength > 16 {
@@ -163,14 +165,14 @@ class RawSyntaxTokenCache {
     }
   
     // Has leading comment trivia et al.
-    for i in 0..<tokdat.leading_trivia_count {
+    for i in 0..<Int(tokdat.leading_trivia_count) {
       if tokdat.leading_trivia![i].text.length > 0 {
         return false
       }
     }
   
     // Has trailing comment trivia et al.
-    for i in 0..<tokdat.trailing_trivia_count {
+    for i in 0..<Int(tokdat.trailing_trivia_count) {
       if tokdat.trailing_trivia![i].text.length > 0 {
         return false
       }
@@ -187,11 +189,11 @@ fileprivate func makeRawNode(_ c_raw_ptr: UnsafePointer<swiftparse_raw_syntax_no
   if kind == .token {
     let tokdat = c_raw.token_data
     // Using the cache slows down performance.
-    return cache.getToken(tokdat, useCache: false)
+    return cache.getToken(tokdat, kind: c_raw.token_kind, useCache: false)
   } else {
     var layout = [RawSyntax?]()
-    layout.reserveCapacity(c_raw.layout_data.nodes_count)
-    for i in 0..<c_raw.layout_data.nodes_count {
+    layout.reserveCapacity(Int(c_raw.layout_data.nodes_count))
+    for i in 0..<Int(c_raw.layout_data.nodes_count) {
       let subnode = moveFromCRawNode(c_raw.layout_data.nodes![i])
       layout.append(subnode)
     }

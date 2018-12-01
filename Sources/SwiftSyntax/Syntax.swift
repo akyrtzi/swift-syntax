@@ -432,21 +432,40 @@ extension String {
   }
 }
 
+public class SyntaxContext {
+  private let alloc: swiftparse_alloc_t
+
+  internal init() {
+    self.alloc = swiftparse_alloc_create()
+  }
+  deinit {
+    swiftparse_alloc_dispose(self.alloc)
+  }
+
+  internal func copyNode(_ c_node: UnsafePointer<swiftparse_raw_syntax_node_t>) -> CRawNode {
+    return swiftparse_copy_node(c_node, alloc)
+  }
+}
+
 public typealias CRawNode = UnsafeMutablePointer<swiftparse_raw_syntax_node_t>
 
 public protocol CSyntax {
-  var c_node: CRawNode { get }
+  @inlinable var c_node: CRawNode { get }
+  @inlinable var context: SyntaxContext { get }
 }
 
 public struct CTokenSyntax: CSyntax {
   @usableFromInline let _c_node: CRawNode 
+  @usableFromInline let ctx: SyntaxContext 
 
   /// Creates a Syntax node from the provided root and data.
-  internal init(c_node: CRawNode) {
+  internal init(c_node: CRawNode, ctx: SyntaxContext) {
     self._c_node = c_node
+    self.ctx = ctx
   }
 
   @inlinable public var c_node: CRawNode { return _c_node }
+  @inlinable public var context: SyntaxContext { return ctx }
 
   /// The text of the token as written in the source code.
   public func getText(contents: String) -> Substring {
@@ -459,7 +478,7 @@ public struct CTokenSyntax: CSyntax {
     guard _c_node.pointee.kind == 0 else {
       fatalError("CTokenSyntax must have token as its raw")
     }
-    return CTokenKind.create(kind: _c_node.pointee.token_data.kind)
+    return CTokenKind.create(kind: _c_node.pointee.token_kind)
   }
 
   /// The length this node takes up spelled out in the source, excluding its
@@ -472,7 +491,7 @@ public struct CTokenSyntax: CSyntax {
   public var leadingTriviaLength: Int {
     let dat = _c_node.pointee.token_data
     var len = 0
-    for i in 0..<dat.leading_trivia_count {
+    for i in 0..<Int(dat.leading_trivia_count) {
       len += Int(dat.leading_trivia![i].text.length)
     }
     return len
@@ -482,7 +501,7 @@ public struct CTokenSyntax: CSyntax {
   public var trailingTriviaLength: Int {
     let dat = _c_node.pointee.token_data
     var len = 0
-    for i in 0..<dat.trailing_trivia_count {
+    for i in 0..<Int(dat.trailing_trivia_count) {
       len += Int(dat.trailing_trivia![i].text.length)
     }
     return len

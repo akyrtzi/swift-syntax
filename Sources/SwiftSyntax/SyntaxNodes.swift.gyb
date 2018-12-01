@@ -55,14 +55,17 @@ public struct UnknownSyntax: _SyntaxBase {
 
 /// A wrapper around a raw Syntax layout.
 public struct CUnknownSyntax: CSyntax {
+  @usableFromInline let ctx: SyntaxContext 
   @usableFromInline let _c_node: CRawNode
 
   /// Creates an `UnknownSyntax` node from the provided root and data.
-  internal init(c_node: CRawNode) {
+  internal init(c_node: CRawNode, ctx: SyntaxContext) {
     self._c_node = c_node
+    self.ctx = ctx
   }
 
   @inlinable public var c_node: CRawNode { return _c_node }
+  @inlinable public var context: SyntaxContext { return ctx }
 }
 
 % for node in SYNTAX_NODES:
@@ -171,7 +174,9 @@ public struct ${node.name}: ${base_type}, _SyntaxBase, Hashable {
 /// ${line}
 %     end
 public struct C${node.name}: CSyntax {
-  private let _c_node: CRawNode
+  @usableFromInline let ctx: SyntaxContext
+  @usableFromInline let _c_node: CRawNode
+
 %     if node.children:
   enum Cursor: Int {
 %       for child in node.children:
@@ -180,11 +185,13 @@ public struct C${node.name}: CSyntax {
   }
 %     end
 
-  internal init(c_node: CRawNode) {
+  internal init(c_node: CRawNode, ctx: SyntaxContext) {
     self._c_node = c_node
+    self.ctx = ctx
   }
 
-  public var c_node: CRawNode { return _c_node }
+  @inlinable public var c_node: CRawNode { return _c_node }
+  @inlinable public var context: SyntaxContext { return ctx }
 
 %     for child in node.children:
 %       ret_type = 'C'+child.type_name
@@ -204,7 +211,7 @@ public struct C${node.name}: CSyntax {
     if child == nil { return nil }
 %       end
     let c_node = child!.bindMemory(to: swiftparse_raw_syntax_node_t.self, capacity: 1)
-    return makeCSyntax(data: CRawNode(c_node)) ${cast}
+    return makeCSyntax(data: CRawNode(c_node), ctx: ctx) ${cast}
   }
 %     end
 

@@ -196,14 +196,17 @@ public struct ${node.name}Iterator: IteratorProtocol {
 /// as a regular Swift collection, and has accessors that return new
 /// versions of the collection with different children.
 public struct C${node.name}: CSyntax, Collection {
+  @usableFromInline let ctx: SyntaxContext
   @usableFromInline let _c_node: CRawNode
 
   /// Creates a Syntax node from the provided root and data.
-  internal init(c_node: CRawNode) {
+  internal init(c_node: CRawNode, ctx: SyntaxContext) {
     self._c_node = c_node
+    self.ctx = ctx
   }
 
   @inlinable public var c_node: CRawNode { return _c_node }
+  @inlinable public var context: SyntaxContext { return ctx }
 
   /// Returns an iterator over the elements of this syntax collection.
   public func makeIterator() -> C${node.name}Iterator {
@@ -217,7 +220,7 @@ public struct C${node.name}: CSyntax, Collection {
   }
 
   public var endIndex: Int {
-    return _c_node.pointee.layout_data.nodes_count
+    return Int(_c_node.pointee.layout_data.nodes_count)
   }
 
   public func index(after i: Int) -> Int {
@@ -228,7 +231,7 @@ public struct C${node.name}: CSyntax, Collection {
 %   cast = '' if node.collection_element_type == 'Syntax' \
 %          else 'as! ' + 'C'+node.collection_element_type
     let c_node = _c_node.pointee.layout_data.nodes![index]!.bindMemory(to: swiftparse_raw_syntax_node_t.self, capacity: 1)
-    return makeCSyntax(data: c_node) ${cast}
+    return makeCSyntax(data: c_node, ctx: ctx) ${cast}
   }
 }
 

@@ -159,7 +159,7 @@ extension TokenKind: ByteTreeObjectDecodable {
 }
 
 extension TokenKind {
-  static func create(kind: UInt32, text: String) throws -> TokenKind {
+  static func create(kind: UInt8, text: String) throws -> TokenKind {
     switch kind {
     case 0: return .eof
 % for token in SYNTAX_TOKENS:
@@ -228,7 +228,7 @@ public enum CTokenKind {
     }
   }
 
-  static func create(kind: UInt32) -> CTokenKind {
+  static func create(kind: UInt8) -> CTokenKind {
     switch kind {
     case 0: return .eof
 % for token in SYNTAX_TOKENS:

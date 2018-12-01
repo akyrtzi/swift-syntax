@@ -329,12 +329,13 @@ open class CSyntaxVisitor {
   }
 
   func visitChildren(_ node: CSyntax) {
+    let ctx = node.context
     let raw = node.c_node.pointee.layout_data
-    for i in 0..<raw.nodes_count {
+    for i in 0..<Int(raw.nodes_count) {
       let c_child_ptr = raw.nodes![i]
       guard let c_child = c_child_ptr else { continue }
       let c_child_node = c_child.bindMemory(to: swiftparse_raw_syntax_node_t.self, capacity: 1)
-      let child_node = makeCSyntax(data: c_child_node)
+      let child_node = makeCSyntax(data: c_child_node, ctx: ctx)
       visit(child_node)
     }
   }

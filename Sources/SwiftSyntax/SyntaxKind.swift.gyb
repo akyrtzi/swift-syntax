@@ -95,17 +95,17 @@ internal func makeSyntax(root: SyntaxData?, data: SyntaxData) -> Syntax {
   }
 }
 
-internal func makeCSyntax(data: CRawNode) -> CSyntax {
+internal func makeCSyntax(data: CRawNode, ctx: SyntaxContext) -> CSyntax {
   let kind = SyntaxKind.fromRawValue(data.pointee.kind)
   switch kind {
-  case .token: return CTokenSyntax(c_node: data)
-  case .unknown: return CUnknownSyntax(c_node: data)
+  case .token: return CTokenSyntax(c_node: data, ctx: ctx)
+  case .unknown: return CUnknownSyntax(c_node: data, ctx: ctx)
 % for node in SYNTAX_NODES:
   case .${node.swift_syntax_kind}:
 %   if node.is_base():
-    return CUnknown${node.name}(c_node: data)
+    return CUnknown${node.name}(c_node: data, ctx: ctx)
 %   else:
-    return C${node.name}(c_node: data)
+    return C${node.name}(c_node: data, ctx: ctx)
 %   end
 % end
   }
@@ -117,10 +117,10 @@ extension SyntaxKind: ByteTreeScalarDecodable {
                    userInfo: UnsafePointer<[ByteTreeUserInfoKey: Any]>
   ) -> SyntaxKind {
     let rawValue = UInt16.read(from: pointer, size: size, userInfo: userInfo)
-    return fromRawValue(UInt32(rawValue))
+    return fromRawValue(UInt8(rawValue))
   }
 
-  static func fromRawValue(_ rawValue: UInt32) -> SyntaxKind {
+  static func fromRawValue(_ rawValue: UInt8) -> SyntaxKind {
     // Explicitly spell out all SyntaxKinds to keep the serialized value stable
     // even if its members get reordered or members get removed
     switch rawValue {
