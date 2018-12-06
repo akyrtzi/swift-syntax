@@ -445,6 +445,10 @@ public class SyntaxContext {
   internal func copyNode(_ c_node: UnsafePointer<swiftparse_raw_syntax_node_t>) -> CRawNode {
     return swiftparse_copy_node(c_node, alloc)
   }
+
+  internal func getMemSize() -> Int {
+    return swiftparse_alloc_get_mem_size(alloc)
+  }
 }
 
 public typealias CRawNode = UnsafeMutablePointer<swiftparse_raw_syntax_node_t>

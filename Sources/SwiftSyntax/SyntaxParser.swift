@@ -13,6 +13,10 @@ public class SyntaxParser {
     swiftparse_parser_dispose(c_parser)
   }
 
+  public func getMemSize() -> Int {
+    return synCtx.getMemSize()
+  }
+
   public func parse(_ contents: String,
     parseOnly: Bool = false,
     isInUTF8: Bool = false,
@@ -58,7 +62,9 @@ public class SyntaxParser {
       nodeHandler = { _ in return nil }
     } else if useBumpAlloc {
       let ctx = self.synCtx // pass it via local variable to avoid unnecessary retain/releases.
+      let nodeCache = CRawSyntaxNodeCache(ctx: ctx)
       nodeHandler = { (c_raw_nodeOpt: Optional<UnsafePointer<swiftparse_raw_syntax_node_t>>) -> Optional<UnsafeMutableRawPointer> in
+        // return nodeCache.getNode(c_raw_nodeOpt!, useCache: true)
         return UnsafeMutableRawPointer(ctx.copyNode(c_raw_nodeOpt!))
       }
     } else {
@@ -81,11 +87,6 @@ public class SyntaxParser {
     }
     return (moveFromCRawNode(c_top), nil)
   }
-}
-
-struct RawTokenData: Hashable {
-  let kind: UInt32
-  let text: Substring
 }
 
 class RawSyntaxTokenCache {
@@ -163,6 +164,64 @@ class RawSyntaxTokenCache {
     if case .stringLiteral(_) = tokKind, textLength > 16 {
       return false
     }
+  
+    // Has leading comment trivia et al.
+    for i in 0..<Int(tokdat.leading_trivia_count) {
+      if tokdat.leading_trivia![i].text.length > 0 {
+        return false
+      }
+    }
+  
+    // Has trailing comment trivia et al.
+    for i in 0..<Int(tokdat.trailing_trivia_count) {
+      if tokdat.trailing_trivia![i].text.length > 0 {
+        return false
+      }
+    }
+  
+    // We can cache the node
+    return true;
+  }
+}
+
+final class CRawSyntaxNodeCache {
+  private let ctx: SyntaxContext
+  private var cache = Dictionary<Int, UnsafeMutableRawPointer>()
+
+  init(ctx: SyntaxContext) {
+    self.ctx = ctx
+  }
+
+  func getNode(_ c_node: UnsafePointer<swiftparse_raw_syntax_node_t>, useCache: Bool = true) -> UnsafeMutableRawPointer {
+    if !useCache || !shouldCacheNode(c_node) {
+      return createNode(c_node)
+    }
+
+    let tokKind = Int(c_node.pointee.token_kind)
+    if let existingNode = cache[tokKind] {
+      return existingNode
+    }
+
+    let newNode = createNode(c_node)
+    cache[tokKind] = newNode
+    return newNode
+  }
+
+  private func createNode(_ c_node: UnsafePointer<swiftparse_raw_syntax_node_t>) -> UnsafeMutableRawPointer {
+    return UnsafeMutableRawPointer(ctx.copyNode(c_node))
+  }
+
+  private func shouldCacheNode(_ c_node: UnsafePointer<swiftparse_raw_syntax_node_t>) -> Bool {
+    let node = c_node.pointee
+    if node.kind != 0 {
+      return false
+    }
+    let tokKind = CTokenKind.create(kind: node.token_kind)
+    if tokKind.hasText {
+      return false
+    }
+
+    let tokdat = node.token_data
   
     // Has leading comment trivia et al.
     for i in 0..<Int(tokdat.leading_trivia_count) {
