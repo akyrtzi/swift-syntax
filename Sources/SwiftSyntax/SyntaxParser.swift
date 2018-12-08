@@ -97,8 +97,22 @@ class RawSyntaxTokenCache {
     self.contents = contents
   }
 
-  func getToken(_ tokdat: swiftparse_token_data_t, kind: swiftparse_token_kind_t, useCache: Bool = true) -> RawSyntax {
-    let text = contents.utf8Slice(offset: Int(tokdat.text.offset), length: Int(tokdat.text.length))
+  func getToken(_ c_node: swiftparse_raw_syntax_node_t, useCache: Bool = true) -> RawSyntax {
+    let tokdat = c_node.token_data
+    let kind = c_node.token_kind
+    var leadingTriviaLen = 0
+    for i in 0..<Int(tokdat.leading_trivia_count) {
+      leadingTriviaLen += Int(tokdat.leading_trivia![i].length)
+    }
+    var trailingTriviaLen = 0
+    for i in 0..<Int(tokdat.trailing_trivia_count) {
+      trailingTriviaLen += Int(tokdat.trailing_trivia![i].length)
+    }
+
+    let offset = Int(c_node.range.offset) + leadingTriviaLen
+    let tokLen = Int(c_node.range.length) - leadingTriviaLen - trailingTriviaLen
+
+    let text = contents.utf8Slice(offset: offset, length: tokLen)
     if !useCache || !shouldCacheNode(tokdat: tokdat, kind: kind) {
       return createToken(tokdat, kind: kind, text: text)
     }
@@ -134,7 +148,7 @@ class RawSyntaxTokenCache {
       for i in 0..<Int(count) {
         let c_piece = c_ptr![i]
         addValue8(c_piece.kind)
-        addValue(c_piece.count)
+        addValue(c_piece.length)
         // Trivia with text are not cached.
       }
     }
@@ -157,30 +171,31 @@ class RawSyntaxTokenCache {
   private func shouldCacheNode(tokdat: swiftparse_token_data_t, kind: swiftparse_token_kind_t) -> Bool {
     // This is adapted from RawSyntaxTokenCache::shouldCacheNode() on the C++ side.
 
-    let textLength = Int(tokdat.text.length)
-    let tokKind = try! TokenKind.create(kind: kind, text: String())
+    fatalError("need to adjust for C struct changes")
+    // let textLength = Int(tokdat.text.length)
+    // let tokKind = try! TokenKind.create(kind: kind, text: String())
 
-    // Is string_literal with >16 length.
-    if case .stringLiteral(_) = tokKind, textLength > 16 {
-      return false
-    }
+    // // Is string_literal with >16 length.
+    // if case .stringLiteral(_) = tokKind, textLength > 16 {
+    //   return false
+    // }
   
-    // Has leading comment trivia et al.
-    for i in 0..<Int(tokdat.leading_trivia_count) {
-      if tokdat.leading_trivia![i].text.length > 0 {
-        return false
-      }
-    }
+    // // Has leading comment trivia et al.
+    // for i in 0..<Int(tokdat.leading_trivia_count) {
+    //   if try! TriviaPiece.isStringKind(kind: tokdat.leading_trivia![i].kind) {
+    //     return false
+    //   }
+    // }
   
-    // Has trailing comment trivia et al.
-    for i in 0..<Int(tokdat.trailing_trivia_count) {
-      if tokdat.trailing_trivia![i].text.length > 0 {
-        return false
-      }
-    }
+    // // Has trailing comment trivia et al.
+    // for i in 0..<Int(tokdat.trailing_trivia_count) {
+    //   if try! TriviaPiece.isStringKind(kind: tokdat.trailing_trivia![i].kind) {
+    //     return false
+    //   }
+    // }
   
-    // We can cache the node
-    return true;
+    // // We can cache the node
+    // return true;
   }
 }
 
@@ -252,9 +267,8 @@ fileprivate func makeRawNode(_ c_raw_ptr: UnsafePointer<swiftparse_raw_syntax_no
   let c_raw = c_raw_ptr.pointee
   let kind = SyntaxKind.fromRawValue(c_raw.kind)
   if kind == .token {
-    let tokdat = c_raw.token_data
     // Using the cache slows down performance.
-    return cache.getToken(tokdat, kind: c_raw.token_kind, useCache: false)
+    return cache.getToken(c_raw, useCache: false)
   } else {
     var layout = [RawSyntax?]()
     layout.reserveCapacity(Int(c_raw.layout_data.nodes_count))
@@ -288,8 +302,9 @@ fileprivate func toTrivia(_ c_ptr: UnsafePointer<swiftparse_trivia_piece_t>?, co
 }
 
 fileprivate func toTriviaPiece(_ c_piece: swiftparse_trivia_piece_t, contents: String) -> TriviaPiece {
-  let kind = c_piece.kind
-  let count = Int(c_piece.count)
-  let text = String(contents.utf8Slice(offset: Int(c_piece.text.offset), length: Int(c_piece.text.length)))
-  return try! TriviaPiece.create(kind: kind, count: count, text: text)
+  fatalError("need to adjust to new C struct for trivia piece")
+  // let kind = c_piece.kind
+  // let count = Int(c_piece.count)
+  // let text = String(contents.utf8Slice(offset: Int(c_piece.text.offset), length: Int(c_piece.text.length)))
+  // return try! TriviaPiece.create(kind: kind, count: count, text: text)
 }

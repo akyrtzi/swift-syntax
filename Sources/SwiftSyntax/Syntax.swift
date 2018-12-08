@@ -473,8 +473,8 @@ public struct CTokenSyntax: CSyntax {
 
   /// The text of the token as written in the source code.
   public func getText(contents: String) -> Substring {
-    let tokdat = _c_node.pointee.token_data
-    return contents.utf8Slice(offset: Int(tokdat.text.offset), length: Int(tokdat.text.length))
+    let offset = Int(_c_node.pointee.range.offset) + leadingTriviaLength
+    return contents.utf8Slice(offset: offset, length: contentLength)
   }
 
   /// The kind of token this node represents.
@@ -488,7 +488,7 @@ public struct CTokenSyntax: CSyntax {
   /// The length this node takes up spelled out in the source, excluding its
   /// leading or trailing trivia.
   public var contentLength: Int {
-    return Int(_c_node.pointee.token_data.text.length)
+    return Int(_c_node.pointee.range.length) - leadingTriviaLength - trailingTriviaLength
   }
   
   /// The length this node's leading trivia takes up spelled out in source.
@@ -496,7 +496,7 @@ public struct CTokenSyntax: CSyntax {
     let dat = _c_node.pointee.token_data
     var len = 0
     for i in 0..<Int(dat.leading_trivia_count) {
-      len += Int(dat.leading_trivia![i].text.length)
+      len += Int(dat.leading_trivia![i].length)
     }
     return len
   }
@@ -506,7 +506,7 @@ public struct CTokenSyntax: CSyntax {
     let dat = _c_node.pointee.token_data
     var len = 0
     for i in 0..<Int(dat.trailing_trivia_count) {
-      len += Int(dat.trailing_trivia![i].text.length)
+      len += Int(dat.trailing_trivia![i].length)
     }
     return len
   }
