@@ -223,19 +223,25 @@ final class CRawSyntaxNodeCache {
 
     let tokdat = node.token_data
   
-    // Has leading comment trivia et al.
-    for i in 0..<Int(tokdat.leading_trivia_count) {
-      if tokdat.leading_trivia![i].text.length > 0 {
-        return false
-      }
+    if tokdat.leading_trivia_count > 0 {
+      return false
     }
+    // // Has leading comment trivia et al.
+    // for i in 0..<Int(tokdat.leading_trivia_count) {
+    //   if tokdat.leading_trivia![i].text.length > 0 {
+    //     return false
+    //   }
+    // }
   
-    // Has trailing comment trivia et al.
-    for i in 0..<Int(tokdat.trailing_trivia_count) {
-      if tokdat.trailing_trivia![i].text.length > 0 {
-        return false
-      }
+    if tokdat.trailing_trivia_count > 0 {
+      return false
     }
+    // // Has trailing comment trivia et al.
+    // for i in 0..<Int(tokdat.trailing_trivia_count) {
+    //   if tokdat.trailing_trivia![i].text.length > 0 {
+    //     return false
+    //   }
+    // }
   
     // We can cache the node
     return true;
